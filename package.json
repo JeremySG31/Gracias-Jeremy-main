@@ -1,6 +1,6 @@
 {
   "name": "gracias-jeremy",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "CLI automatizador de Git & GitHub — by Jeremy Sánchez",
   "main": "index.js",
   "bin": {

@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 
 // ════════════════════════════════════════════════════════
-//   GRACIAS JEREMY CLI  —  v2.0.0
+//   GRACIAS JEREMY CLI  —  v2.1.0
 //   Automatizador de Git & GitHub  |  by Jeremy Sánchez
 //   github.com/JeremySG31
 // ════════════════════════════════════════════════════════
 
 'use strict';
 
-const { execSync } = require('child_process');
-const readline     = require('readline-sync');
-const os           = require('os');
+const { execFileSync, execSync } = require('child_process');
+const readline                   = require('readline-sync');
+const os                         = require('os');
 
-const VERSION = '2.0.0';
+const VERSION    = '2.1.0';
+const MAX_RETRY  = 5;   // Máximo de intentos en cualquier input
 
 // ──────────────────────────────────────────────────────
 //  COLORES  (256-color ANSI para terminales modernas)
@@ -21,34 +22,107 @@ const K = {
   reset:    '\x1b[0m',
   bold:     '\x1b[1m',
   dim:      '\x1b[2m',
-  morado:   '\x1b[38;5;135m',   // Violeta
-  verde:    '\x1b[38;5;82m',    // Verde neón
-  amarillo: '\x1b[38;5;220m',   // Ámbar
-  rojo:     '\x1b[38;5;203m',   // Rojo suave
-  cian:     '\x1b[38;5;51m',    // Cian eléctrico
-  rosa:     '\x1b[38;5;213m',   // Rosa claro
-  gris:     '\x1b[38;5;245m',   // Gris medio
+  morado:   '\x1b[38;5;135m',
+  verde:    '\x1b[38;5;82m',
+  amarillo: '\x1b[38;5;220m',
+  rojo:     '\x1b[38;5;203m',
+  cian:     '\x1b[38;5;51m',
+  rosa:     '\x1b[38;5;213m',
+  gris:     '\x1b[38;5;245m',
   blanco:   '\x1b[97m',
-  bgVioleta:'\x1b[48;5;55m',    // Fondo violeta oscuro
-  bgVerde:  '\x1b[48;5;22m',    // Fondo verde oscuro
+  bgVioleta:'\x1b[48;5;55m',
 };
 
 // ──────────────────────────────────────────────────────
-//  HELPERS DE EJECUCIÓN
+//  EJECUCIÓN SEGURA  (sin shell — previene inyección)
+//
+//  ✔ execFileSync(cmd, args[]) NO pasa por /bin/sh,
+//    por lo que caracteres como ; | & $ ` no son
+//    interpretados como comandos de shell.
 // ──────────────────────────────────────────────────────
-function run(cmd) {
-  try   { return execSync(cmd, { stdio: 'inherit', encoding: 'utf8' }); }
-  catch { return null; }
+
+/**
+ * Ejecuta un comando sin shell y muestra su salida.
+ * @param {string}   cmd  - Ejecutable (p.ej. 'git')
+ * @param {string[]} args - Argumentos como array (p.ej. ['commit', '-m', msg])
+ */
+function run(cmd, args = []) {
+  try {
+    return execFileSync(cmd, args, { stdio: 'inherit', encoding: 'utf8' });
+  } catch {
+    return null;
+  }
 }
 
-function getOutput(cmd) {
-  try   { return execSync(cmd, { stdio: 'pipe', encoding: 'utf8' }).trim(); }
-  catch { return null; }
+/**
+ * Igual que run() pero captura y retorna la salida estándar.
+ */
+function getOutput(cmd, args = []) {
+  try {
+    return execFileSync(cmd, args, { stdio: 'pipe', encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
 }
 
+/**
+ * Verifica si un ejecutable existe en el PATH sin pasar por shell.
+ */
 function commandExists(cmd) {
-  const check = os.platform() === 'win32' ? `where ${cmd}` : `command -v ${cmd}`;
-  return getOutput(check) !== null;
+  try {
+    const checkCmd  = os.platform() === 'win32' ? 'where' : 'which';
+    execFileSync(checkCmd, [cmd], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ──────────────────────────────────────────────────────
+//  VALIDACIÓN DE INPUTS
+// ──────────────────────────────────────────────────────
+
+/**
+ * Limpia el mensaje de commit:
+ * - Elimina caracteres de control (salvo espacios normales)
+ * - Recorta a 200 caracteres máximo
+ */
+function sanitizeCommit(msg) {
+  return msg.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim().slice(0, 200);
+}
+
+/**
+ * Nombre de usuario Git: solo caracteres imprimibles ASCII, máx 100 chars.
+ */
+function isValidName(name) {
+  return name.length > 0 && name.length <= 100 && /^[\x20-\x7e]+$/.test(name);
+}
+
+/**
+ * Validación básica de formato de email.
+ */
+function isValidEmail(email) {
+  return /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$/.test(email);
+}
+
+/**
+ * URL de repositorio Git válida:
+ * - HTTPS:  https://github.com/user/repo  (o .git)
+ * - SSH:    git@github.com:user/repo.git
+ */
+function isValidGitUrl(url) {
+  return (
+    /^https:\/\/[a-zA-Z0-9._/-]+$/.test(url) ||
+    /^git@[a-zA-Z0-9._-]+:[a-zA-Z0-9._/-]+$/.test(url)
+  );
+}
+
+/**
+ * Nombre de repo GitHub: alfanumérico, guiones, subrayados, puntos.
+ * Sin espacios, sin comenzar/terminar con punto o guión.
+ */
+function isValidRepoName(name) {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,98}[a-zA-Z0-9]$|^[a-zA-Z0-9]$/.test(name);
 }
 
 // ──────────────────────────────────────────────────────
@@ -67,6 +141,24 @@ function warn(msg) { console.log(`${K.amarillo}   ⚠  ${msg}${K.reset}`); }
 function fail(msg) { console.log(`${K.rojo}   ✖  ${msg}${K.reset}`); }
 function info(msg) { console.log(`${K.cian}   ℹ  ${msg}${K.reset}`); }
 function ask(msg)  { return readline.question(`\n${K.amarillo}   ›  ${msg}: ${K.reset}`); }
+
+/**
+ * Pide un input al usuario con validación y límite de reintentos.
+ * @param {string}   prompt   - Texto que se muestra al usuario
+ * @param {Function} validate - Función que retorna true si el valor es válido
+ * @param {string}   errorMsg - Mensaje de error cuando no pasa la validación
+ * @returns {string|null} - El valor válido o null si se agotaron los intentos
+ */
+function askValidated(prompt, validate, errorMsg) {
+  for (let i = 0; i < MAX_RETRY; i++) {
+    const valor = ask(prompt).trim();
+    if (validate(valor)) return valor;
+    fail(errorMsg);
+    if (i < MAX_RETRY - 1) warn(`Intento ${i + 1}/${MAX_RETRY}.`);
+  }
+  fail(`Se superaron los ${MAX_RETRY} intentos permitidos. Abortando.`);
+  return null;
+}
 
 // ──────────────────────────────────────────────────────
 //  TIPS ORIGINALES (Jeremy Sánchez)
@@ -91,16 +183,11 @@ function randomTip() {
 // ──────────────────────────────────────────────────────
 function showBanner() {
   console.clear();
-
-  // Ajuste del header bar
   const header = `  🛰   GRACIAS JEREMY CLI   ·   v${VERSION}   ·   Jeremy Sánchez  `;
-  const padded = header.padEnd(60);
-
   console.log();
-  console.log(`${K.bgVioleta}${K.blanco}${K.bold}${padded}${K.reset}`);
+  console.log(`${K.bgVioleta}${K.blanco}${K.bold}${header.padEnd(60)}${K.reset}`);
   console.log();
 
-  // Logo ASCII original: letras "GJ" estilizadas
   const logo = [
     `${K.morado}${K.bold}   ██████╗      ██╗`,
     `  ██╔════╝     ██║`,
@@ -148,23 +235,34 @@ const acciones = [];
 // ── PASO 1: Verificar identidad Git ───────────────────
 paso(1, 'Verificar identidad Git');
 
-let gitUser  = getOutput('git config --global user.name');
-let gitEmail = getOutput('git config --global user.email');
+let gitUser  = getOutput('git', ['config', '--global', 'user.name']);
+let gitEmail = getOutput('git', ['config', '--global', 'user.email']);
 
 if (!gitUser || !gitEmail) {
   warn('Git no está configurado en este sistema.');
-  const nuevoNombre = ask('Tu nombre completo');
-  const nuevoEmail  = ask('Tu correo de GitHub');
+
+  const nuevoNombre = askValidated(
+    'Tu nombre completo',
+    isValidName,
+    'Nombre inválido. Solo caracteres imprimibles, máx 100 caracteres.'
+  );
+
+  const nuevoEmail = askValidated(
+    'Tu correo de GitHub',
+    isValidEmail,
+    'Formato de email inválido (ejemplo: tu@correo.com).'
+  );
 
   if (nuevoNombre && nuevoEmail) {
-    run(`git config --global user.name "${nuevoNombre}"`);
-    run(`git config --global user.email "${nuevoEmail}"`);
+    // Los args se pasan como array — sin riesgo de inyección
+    run('git', ['config', '--global', 'user.name',  nuevoNombre]);
+    run('git', ['config', '--global', 'user.email', nuevoEmail]);
     gitUser  = nuevoNombre;
     gitEmail = nuevoEmail;
     ok('Identidad Git guardada correctamente.');
     acciones.push('Git configurado con nueva identidad');
   } else {
-    fail('Datos incompletos. Se continúa sin configurar Git.');
+    fail('No se pudo configurar Git. Continuando sin identidad.');
   }
 } else {
   ok(`Hola, ${K.bold}${gitUser}${K.reset}${K.verde} · ${gitEmail}`);
@@ -174,18 +272,25 @@ if (!gitUser || !gitEmail) {
 // ── PASO 2: Staging y commit ──────────────────────────
 paso(2, 'Preparar staging y crear commit');
 
-run('git init');
-run('git add .');
+run('git', ['init']);
+run('git', ['add', '.']);
 ok('Archivos añadidos al área de staging.');
 
-let commitMsg = '';
-while (!commitMsg.trim()) {
-  commitMsg = ask('Descripción del commit (obligatorio)');
-  if (!commitMsg.trim()) fail('No puedes dejar el commit vacío. Intenta de nuevo.');
-}
-commitMsg = commitMsg.trim();
+const commitRaw = askValidated(
+  'Descripción del commit (obligatorio)',
+  v => v.length > 0,
+  'El mensaje de commit no puede estar vacío.'
+);
 
-const committed = run(`git commit -m "${commitMsg}"`);
+if (!commitRaw) {
+  fail('No se pudo obtener un mensaje de commit válido. Abortando.');
+  process.exit(1);
+}
+
+// Sanitizar antes de usar (elimina caracteres de control)
+const commitMsg = sanitizeCommit(commitRaw);
+
+const committed = run('git', ['commit', '-m', commitMsg]);
 if (committed !== null) {
   ok(`Commit creado: "${commitMsg}"`);
   acciones.push(`Commit: "${commitMsg}"`);
@@ -193,27 +298,30 @@ if (committed !== null) {
   warn('Nada nuevo que commitear — árbol sin cambios.');
 }
 
-run('git branch -M main');
+run('git', ['branch', '-M', 'main']);
 
 // ── PASO 3: Gestión del origen remoto ─────────────────
 paso(3, 'Gestión del origen remoto');
 
-const remotoActual = getOutput('git remote get-url origin');
+const remotoActual = getOutput('git', ['remote', 'get-url', 'origin']);
 
 if (remotoActual) {
-  warn(`Este proyecto ya tiene un repositorio enlazado:`);
+  warn('Este proyecto ya tiene un repositorio enlazado:');
   info(remotoActual);
 
-  const reemplazar = readline.keyInYN(`\n${K.amarillo}   ›  ¿Eliminar este enlace y configurar uno nuevo?${K.reset}`);
+  const reemplazar = readline.keyInYN(
+    `\n${K.amarillo}   ›  ¿Eliminar este enlace y configurar uno nuevo?${K.reset}`
+  );
+
   if (!reemplazar) {
     info('Subiendo cambios al repositorio actual...');
-    run('git push origin main');
+    run('git', ['push', 'origin', 'main']);
     acciones.push(`Push → ${remotoActual}`);
     showResumen(acciones);
     process.exit(0);
   }
 
-  getOutput('git remote remove origin');
+  run('git', ['remote', 'remove', 'origin']);
   ok('Enlace anterior eliminado.');
 }
 
@@ -244,7 +352,11 @@ if (eleccion === 0) {
       info('Instálalo con:  winget install GitHub.cli');
     } else if (plataforma === 'linux') {
       info('Intentando instalar gh automáticamente...');
-      run('sudo apt update && sudo apt install gh -y');
+      // apt requiere shell compuesto — se usa execSync solo aquí,
+      // con comandos fijos (sin input de usuario), por lo que es seguro.
+      try {
+        execSync('sudo apt update && sudo apt install gh -y', { stdio: 'inherit' });
+      } catch { /* el usuario puede instalarlo manualmente */ }
       tieneGH = commandExists('gh');
     } else {
       info('Descárgalo en:  https://cli.github.com/');
@@ -252,42 +364,51 @@ if (eleccion === 0) {
   }
 
   if (tieneGH) {
-    const estadoAuth = getOutput('gh auth status');
+    const estadoAuth = getOutput('gh', ['auth', 'status']);
     if (!estadoAuth || estadoAuth.includes('not logged in')) {
       info('Abriendo el navegador para iniciar sesión en GitHub...');
-      run('gh auth login --hostname github.com -p https -w');
+      run('gh', ['auth', 'login', '--hostname', 'github.com', '-p', 'https', '-w']);
     } else {
       ok('Sesión de GitHub activa.');
     }
 
-    let nombreRepo = '';
-    while (!nombreRepo.trim()) {
-      nombreRepo = ask('Nombre del nuevo repositorio en GitHub');
-      if (!nombreRepo.trim()) fail('El nombre no puede estar vacío.');
+    const nombreRepo = askValidated(
+      'Nombre del nuevo repositorio en GitHub',
+      isValidRepoName,
+      'Nombre inválido. Usa solo letras, números, guiones o subrayados (sin espacios).'
+    );
+
+    if (!nombreRepo) {
+      fail('Nombre de repositorio inválido. Abortando.');
+      process.exit(1);
     }
-    nombreRepo = nombreRepo.trim();
 
     const esPrivado  = readline.keyInYN(`\n${K.amarillo}   ›  ¿Hacerlo privado?${K.reset}`);
     const flagVisib  = esPrivado ? '--private' : '--public';
     const labelVisib = esPrivado ? 'privado' : 'público';
 
     info(`Creando "${nombreRepo}" (${labelVisib}) y subiendo el código...`);
-    run(`gh repo create ${nombreRepo} ${flagVisib} --source=. --remote=origin --push`);
+    // Todos los argumentos como array — sin interpolación en shell
+    run('gh', ['repo', 'create', nombreRepo, flagVisib, '--source=.', '--remote=origin', '--push']);
     acciones.push(`Repo creado en GitHub: ${nombreRepo} (${labelVisib})`);
   }
 
 // ── Opción: Enlazar repo existente ───────────────────
 } else if (eleccion === 1) {
-  let urlRemoto = '';
-  while (!urlRemoto.trim()) {
-    urlRemoto = ask('URL del repositorio (.git)');
-    if (!urlRemoto.trim()) fail('Necesitas una URL válida para continuar.');
-  }
-  urlRemoto = urlRemoto.trim();
+  const urlRemoto = askValidated(
+    'URL del repositorio (https://... o git@...)',
+    isValidGitUrl,
+    'URL inválida. Debe comenzar con https:// o git@ y no contener espacios.'
+  );
 
-  getOutput('git remote remove origin');
-  run(`git remote add origin ${urlRemoto}`);
-  run('git push -u origin main');
+  if (!urlRemoto) {
+    fail('URL inválida tras varios intentos. Abortando.');
+    process.exit(1);
+  }
+
+  run('git', ['remote', 'remove', 'origin']);
+  run('git', ['remote', 'add', 'origin', urlRemoto]);
+  run('git', ['push', '-u', 'origin', 'main']);
   acciones.push(`Enlazado a: ${urlRemoto}`);
 
 // ── Cancelado ─────────────────────────────────────────
