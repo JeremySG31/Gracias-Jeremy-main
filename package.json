@@ -20,6 +20,9 @@
   ],
   "author": "Jeremy Sánchez <github.com/JeremySG31>",
   "license": "ISC",
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "dependencies": {
     "readline-sync": "^1.4.10"
   }
