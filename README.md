@@ -42,6 +42,17 @@ node index.js
 
 ---
 
+## 🖥️ ¿Por qué un CLI y no solo botones en el IDE?
+
+Es una observación común: *"Mi IDE ya tiene botones para subir a GitHub"*. Sin embargo, **Gracias Jeremy CLI** nace para cubrir necesidades que un botón no siempre resuelve:
+
+*   **Flujo Ininterrumpido:** Ideal para desarrolladores que viven en la terminal (Vim, Nano, terminales de Linux) y quieren evitar el "context switch" de pasar al ratón.
+*   **Guía paso a paso:** No es solo un botón de "Push"; es un asistente que verifica tu identidad Git, valida que tus mensajes de commit sean correctos y te ayuda a crear repositorios en GitHub sin salir de la consola.
+*   **Seguridad y Validación:** Incluye reglas estrictas para evitar que subas correos mal formados o mensajes vacíos, algo que los botones genéricos a veces ignoran.
+*   **Personalidad:** A diferencia de una interfaz gris de IDE, aquí tienes consejos de desarrollo, un diseño visual premium y un resumen detallado de tus acciones.
+
+---
+
 ## ✨ Lo que lo hace diferente
 
 - **Banner único** con logo ASCII "GJ" propio
